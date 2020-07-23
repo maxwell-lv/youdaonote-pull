@@ -11,8 +11,7 @@ import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 import re
 import logging
-import shutil
-import fixfiletime
+
 # logging.basicConfig(level=logging.INFO)
 
 __author__ = 'DeppWang (deppwxq@gmail.com)'
@@ -303,69 +302,10 @@ class YoudaoNoteSession(requests.Session):
             count += 1
             lastId = id
 
-    def get_image(self, id, name, local_dir, file_entry) -> bool:
-        if "水木快照" in name:
-            real_name = name[:name.find(" -")]
-
-            data = {
-                'fileId': id,
-                'version': -1,
-                'convert': 'true',
-                'editorType': 1,
-                'cstk': self.cstk
-            }
-            url = self.FILE_URL % self.cstk
-            response = self.post(url, data=data)
-
-            file_path = os.path.join(local_dir, name)
-            with open(file_path, 'wb') as f:
-                f.write(response.content)
-
-            # 使用 xml.etree.ElementTree 将 xml 文件转换为多维数组
-            tree = ET.parse(file_path)
-            root = tree.getroot()
-
-            flag = 0  # 用于输出转换提示
-            nl = '\r\n'  # 考虑 Windows 系统，换行符设为 \r\n
-            new_content = f''  # f-string 多行字符串
-
-            # list id 与 type 的对应
-            list_item = {}
-            for child in root[0]:
-                if 'list' in child.tag:
-                    list_item[child.attrib['id']] = child.attrib['type']
-
-            # 得到多维数组中的文本，因为是数组，不是对象（json），所以只能遍历
-            # root[1] 为 body
-            for child in root[1]:
-                if 'image' in child.tag:
-                    if flag == 0:
-                        self.print_ydnote_file_name(file_path)
-
-                    for child2 in child:
-                        if 'source' in child2.tag:
-                            image_url = ''
-                            if child2.text is not None:
-                                image_url = self.get_new_down_or_upload_url(child2.text, file_path)
-                                flag += 1
-                                local_image_path = os.path.join(local_dir, image_url)
-                                image_ext = os.path.splitext(local_image_path)[1]
-                                new_image_name = real_name + image_ext
-                                new_image_path = os.path.join(local_dir, new_image_name)
-                                shutil.copy(local_image_path, new_image_path)
-                                break
-
-            return True
-        else:
-            return False
-
     def judge_add_or_update(self, id, name, local_dir, file_entry) -> None:
         """ 判断是新增还是更新 """
 
         name = self.optimize_name(name)
-
-        # if self.get_image(id, name, local_dir, file_entry):
-        #     return
 
         youdao_file_suffix = os.path.splitext(name)[1]      # 笔记后缀
         local_file_path = os.path.join(local_dir, name)     # 用于将后缀 .note 转换为 .md
@@ -373,9 +313,6 @@ class YoudaoNoteSession(requests.Session):
 
         tip = ''
 
-        # 其实没后缀名的文件，只有一张图的，应该也能变成md文件，当作note文件试试
-        if youdao_file_suffix == '':
-            youdao_file_suffix = '.note'
         # 本地 .note 文件均为 .md，使用 .md 后缀判断是否在本地存在
         if youdao_file_suffix == '.note':
             tip = '，云笔记原格式为 .note'
@@ -386,8 +323,6 @@ class YoudaoNoteSession(requests.Session):
         if not os.path.exists(local_file_path):
             self.get_file(id, original_file_path, youdao_file_suffix)
             print('新增「%s」%s' % (local_file_path, tip))
-            # 修改文件创建时间和修改时间与笔记原时间一致
-            fixfiletime.changeFileCreationTime(local_file_path, file_entry['createTimeForSort'], file_entry['modifyTimeForSort'])
         # 如果已经存在，判断是否需要更新
         else:
             # 如果有道云笔记文件更新时间小于本地文件时间，说明没有更新。跳过本地更新步骤
@@ -500,11 +435,6 @@ class YoudaoNoteSession(requests.Session):
                         image_name = child2.text
                         if child2.text is None:
                             image_name = ''
-                        new_content += f'![%s](%s){nl}{nl}' % (image_name, image_url)
-                        break
-                    # 有可能没有text标签，这时候就只能直接保存图片链接
-                    elif 'styles' in child2.tag:
-                        image_name = ''
                         new_content += f'![%s](%s){nl}{nl}' % (image_name, image_url)
                         break
 
